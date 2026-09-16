@@ -8,6 +8,7 @@ import { useAgentStore } from "../store/agentStore";
 
 import AgentGrid from "@/components/AgentGrid";
 import ConnectionStatus from "@/components/ConnectionStatus";
+import SummaryBar from "@/components/SummaryBar";
 
 export default function Home() {
     const agents = useAgentStore((state) => state.agents);
@@ -91,6 +92,10 @@ export default function Home() {
                 </div>
 
                 <ConnectionStatus />
+            </div>
+
+            <div className="px-4 pt-4">
+                <SummaryBar />
             </div>
 
             <AgentGrid />
