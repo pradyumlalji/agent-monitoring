@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Live Agent Monitoring Dashboard — Take-Home Assignment
 
-## Getting Started
+Read `Senior_Frontend_Engineer_Take_Home.pdf` first. It contains the full brief,
+the requirements, and how we assess the submission.
 
-First, run the development server:
+## Quick start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+There is no backend to start. Everything is served from the files in `mock/`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What's in `mock/`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| File | Purpose |
+|---|---|
+| `agents.json` | Roster snapshot — 300 agents and their state at snapshot time |
+| `events.json` | Real-time event log in delivery order (~8,500 events) |
+| `calls.json` | Historical call records for the agent detail panel |
+| `agentStream.js` | Mock transport — `connect()`, `fetchAgents()`, `fetchCalls()` |
 
-## Learn More
+**Do not modify anything in `mock/`.** Treat it as an external system you do not
+control. If you need different behaviour to test something, use the options that
+`connect()` accepts:
 
-To learn more about Next.js, take a look at the following resources:
+```js
+import { connect, fetchAgents, fetchCalls } from './mock/agentStream';
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+const conn = connect({
+  onEvent: (event) => { /* ... */ },
+  onStatusChange: (status) => { /* 'connecting' | 'open' | 'closed' */ },
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+  // optional — tune while developing, note it in your README if you change it
+  eventsPerSecond: 25,
+  dropoutEveryMs: 45000,
+  dropoutDurationMs: 8000,
+  jitterMs: 400,
+});
 
-## Deploy on Vercel
+conn.close();
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Things worth knowing before you design
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The stream is deliberately unreliable, in the same ways ours is in production:
+
+- Events for the same agent can arrive **out of order**
+- Events are sometimes **delivered more than once**
+- The connection **drops periodically** and replays a window on reconnect
+- Some events arrive **long after they were emitted**, including a few that
+  predate the roster snapshot
+- A handful of agents have **skewed device clocks**, so `emittedAt` is not a
+  safe ordering key — `sequence` is monotonic per agent
+- `fetchAgents()` and `fetchCalls()` **fail intermittently**, by design
+
+## Time-box
+
+4–5 hours of work, returned within 24 hours. We assess only what fits in that
+window. An incomplete submission with clean architecture beats a complete one
+that is tangled — tell us in your README what you left out and why.
