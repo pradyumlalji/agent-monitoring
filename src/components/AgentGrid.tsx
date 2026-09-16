@@ -1,254 +1,299 @@
 "use client";
 
-import { useMemo } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAgentStore } from "../store/agentStore";
+import type { AgentRuntime } from "../store/agentTypes";
 import { getCombinedState } from "../store/agentSelectors";
-import AgentFilters from "./AgentFilters";
 
-type SortKey = "name" | "extension" | "queue" | "site" | "device" | "agentState" | "combinedState";
+import AgentFilters from "./AgentFilters";
+import AgentRow from "./AgentRow";
+import AgentDetailPanel from "./AgentDetailPanel";
+
+type SortKey = "name" | "extension" | "site" | "deviceStatus" | "agentStatus" | "combinedState";
 
 type SortDirection = "asc" | "desc";
 
+const COLUMNS: {
+    key: SortKey;
+    label: string;
+}[] = [
+    { key: "name", label: "Name" },
+    { key: "extension", label: "Extension" },
+    { key: "site", label: "Site" },
+    { key: "deviceStatus", label: "Device State" },
+    { key: "agentStatus", label: "Agent State" },
+    { key: "combinedState", label: "Actionable State" },
+];
+
+function getSortValue(agent: AgentRuntime, key: SortKey): string {
+    switch (key) {
+        case "combinedState":
+            return getCombinedState(agent);
+
+        case "name":
+            return agent.name;
+
+        case "extension":
+            return agent.extension;
+
+        case "site":
+            return agent.site;
+
+        case "deviceStatus":
+            return agent.deviceStatus;
+
+        case "agentStatus":
+            return agent.agentStatus;
+
+        default:
+            return "";
+    }
+}
+
+interface SortableHeaderProps {
+    label: string;
+    sortKey: SortKey;
+    activeSortKey: SortKey;
+    direction: SortDirection;
+    onSort: (key: SortKey) => void;
+}
+
+function SortableHeader({ label, sortKey, activeSortKey, direction, onSort }: SortableHeaderProps) {
+    const isActive = activeSortKey === sortKey;
+
+    return (
+        <th className="border border-gray-300 bg-gray-100 px-3 py-2 text-left">
+            <button
+                type="button"
+                onClick={() => onSort(sortKey)}
+                className="font-semibold hover:underline"
+                aria-label={`Sort by ${label}`}
+            >
+                {label}
+
+                {isActive && (
+                    <span className="ml-1" aria-hidden="true">
+                        {direction === "asc" ? "↑" : "↓"}
+                    </span>
+                )}
+            </button>
+        </th>
+    );
+}
+
 export default function AgentGrid() {
-    const agents = useAgentStore((state) => state.agents);
-    const agentList = Object.values(agents);
-
-    const searchParams = useSearchParams();
     const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
 
-    // Filters from URL
-    const search = searchParams.get("search") || "";
-    const state = searchParams.get("state") || "";
-    const queue = searchParams.get("queue") || "";
-    const site = searchParams.get("site") || "";
+    const agents = useAgentStore((state) => state.agents);
 
-    // Sorting from URL
-    const sortKey = (searchParams.get("sort") || "name") as SortKey;
-    const sortDirection = (searchParams.get("direction") || "asc") as SortDirection;
+    const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
-    // Update URL
-    const updateFilter = (key: string, value: string) => {
-        const params = new URLSearchParams(searchParams.toString());
+    const search = searchParams.get("search") ?? "";
+    const queue = searchParams.get("queue") ?? "";
+    const site = searchParams.get("site") ?? "";
+    const state = searchParams.get("state") ?? "";
 
-        if (value) {
-            params.set(key, value);
-        } else {
-            params.delete(key);
+    const [searchInput, setSearchInput] = useState(search);
+
+    const [sortKey, setSortKey] = useState<SortKey>("name");
+
+    const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+    const pushParams = useCallback(
+        (mutate: (params: URLSearchParams) => void, replace = false) => {
+            const params = new URLSearchParams(searchParams.toString());
+
+            mutate(params);
+
+            const queryString = params.toString();
+
+            const url = queryString ? `${pathname}?${queryString}` : pathname;
+
+            if (replace) {
+                router.replace(url);
+            } else {
+                router.push(url);
+            }
+        },
+        [pathname, router, searchParams],
+    );
+
+    // Debounce search updates so every keystroke does not
+    // immediately trigger filtering + URL navigation.
+    useEffect(() => {
+        if (searchInput === search) {
+            return;
         }
 
-        router.push(`?${params.toString()}`);
-    };
+        const timer = setTimeout(() => {
+            pushParams((params) => {
+                const value = searchInput.trim();
 
-    // Clear filters
-    const resetFilters = () => {
-        const params = new URLSearchParams(searchParams.toString());
+                if (value) {
+                    params.set("search", value);
+                } else {
+                    params.delete("search");
+                }
+            }, true);
+        }, 300);
 
-        params.delete("search");
-        params.delete("state");
-        params.delete("queue");
-        params.delete("site");
+        return () => {
+            clearTimeout(timer);
+        };
+    }, [searchInput, search, pushParams]);
 
-        router.push(`?${params.toString()}`);
-    };
-
-    // Sorting
-    const handleSort = (key: SortKey) => {
-        const params = new URLSearchParams(searchParams.toString());
-
-        if (sortKey === key) {
-            params.set("direction", sortDirection === "asc" ? "desc" : "asc");
-        } else {
-            params.set("sort", key);
-            params.set("direction", "asc");
-        }
-
-        router.push(`?${params.toString()}`);
-    };
+    const agentList = useMemo(() => Object.values(agents), [agents]);
 
     const filteredAgents = useMemo(() => {
-        const filtered = agentList.filter((agent) => {
-            const matchesSearch =
-                agent.name.toLowerCase().includes(search.toLowerCase()) ||
-                agent.extension.toLowerCase().includes(search.toLowerCase());
+        const normalizedSearch = search.trim().toLowerCase();
 
-            const matchesState = !state || getCombinedState(agent) === state;
+        return agentList.filter((agent) => {
+            const matchesSearch =
+                !normalizedSearch ||
+                agent.name.toLowerCase().includes(normalizedSearch) ||
+                agent.extension.toLowerCase().includes(normalizedSearch) ||
+                agent.agentId.toLowerCase().includes(normalizedSearch);
 
             const matchesQueue = !queue || agent.queues.includes(queue);
 
             const matchesSite = !site || agent.site === site;
 
-            return matchesSearch && matchesState && matchesQueue && matchesSite;
+            const matchesState = !state || getCombinedState(agent) === state;
+
+            return matchesSearch && matchesQueue && matchesSite && matchesState;
         });
+    }, [agentList, search, queue, site, state]);
 
-        return [...filtered].sort((a, b) => {
-            let valueA = "";
-            let valueB = "";
+    const sortedAgents = useMemo(() => {
+        const sorted = [...filteredAgents];
 
-            switch (sortKey) {
-                case "name":
-                    valueA = a.name;
-                    valueB = b.name;
-                    break;
+        sorted.sort((a, b) => {
+            const aValue = getSortValue(a, sortKey);
+            const bValue = getSortValue(b, sortKey);
 
-                case "extension":
-                    valueA = a.extension;
-                    valueB = b.extension;
-                    break;
-
-                case "queue":
-                    valueA = a.queues.join(", ");
-                    valueB = b.queues.join(", ");
-                    break;
-
-                case "site":
-                    valueA = a.site;
-                    valueB = b.site;
-                    break;
-
-                case "device":
-                    valueA = a.deviceStatus;
-                    valueB = b.deviceStatus;
-                    break;
-
-                case "agentState":
-                    valueA = a.agentStatus;
-                    valueB = b.agentStatus;
-                    break;
-
-                case "combinedState":
-                    valueA = getCombinedState(a);
-                    valueB = getCombinedState(b);
-                    break;
-            }
-
-            const comparison = valueA.localeCompare(valueB);
+            const comparison = aValue.localeCompare(bValue, undefined, {
+                numeric: true,
+                sensitivity: "base",
+            });
 
             return sortDirection === "asc" ? comparison : -comparison;
         });
-    }, [agentList, search, state, queue, site, sortKey, sortDirection]);
+
+        return sorted;
+    }, [filteredAgents, sortKey, sortDirection]);
+
+    const handleSort = useCallback(
+        (key: SortKey) => {
+            if (sortKey === key) {
+                setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+            } else {
+                setSortKey(key);
+                setSortDirection("asc");
+            }
+        },
+        [sortKey],
+    );
+
+    const handleSelectAgent = useCallback((agentId: string) => {
+        setSelectedAgentId(agentId);
+    }, []);
+
+    const handleCloseDetail = useCallback(() => {
+        setSelectedAgentId(null);
+    }, []);
+
+    const handleFilterChange = useCallback(
+        (key: "queue" | "site" | "state", value: string) => {
+            pushParams((params) => {
+                if (value) {
+                    params.set(key, value);
+                } else {
+                    params.delete(key);
+                }
+            });
+        },
+        [pushParams],
+    );
 
     return (
-        <div className="p-4">
+        <section className="p-4">
             <AgentFilters
-                search={search}
-                state={state}
+                search={searchInput}
                 queue={queue}
                 site={site}
-                onSearchChange={(value) => updateFilter("search", value)}
-                onStateChange={(value) => updateFilter("state", value)}
-                onQueueChange={(value) => updateFilter("queue", value)}
-                onSiteChange={(value) => updateFilter("site", value)}
-                onReset={resetFilters}
+                state={state}
+                onSearchChange={setSearchInput}
+                onQueueChange={(value) => handleFilterChange("queue", value)}
+                onSiteChange={(value) => handleFilterChange("site", value)}
+                onStateChange={(value) => handleFilterChange("state", value)}
+                onReset={() => {
+                    pushParams((params) => {
+                        params.delete("search");
+                        params.delete("queue");
+                        params.delete("site");
+                        params.delete("state");
+                    });
+
+                    setSearchInput("");
+                }}
             />
 
-            <div className="p-5">
-                <p className="mb-3 text-sm text-gray-600">
-                    Showing {filteredAgents.length} of {agentList.length} agents
+            <div className="mt-4 flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                    Showing {sortedAgents.length} of {agentList.length} agents
                 </p>
+            </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                        <thead>
-                            <tr className="bg-gray-100">
-                                <th
-                                    onClick={() => handleSort("name")}
-                                    className="cursor-pointer border border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Agent{" "}
-                                    {sortKey === "name" && (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
+            {sortedAgents.length === 0 ? (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-8 text-center">
+                    <p className="font-medium text-gray-700">No agents found</p>
 
-                                <th
-                                    onClick={() => handleSort("extension")}
-                                    className="cursor-pointer border border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Extension{" "}
-                                    {sortKey === "extension" &&
-                                        (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Try changing or clearing your filters.
+                    </p>
+                </div>
+            ) : (
+                <div className="mt-4 max-h-[calc(100vh-220px)] overflow-auto rounded-lg border border-gray-300">
+                    <table className="w-full border-collapse">
+                        <thead className="sticky top-0 z-10">
+                            <tr>
+                                {COLUMNS.map((column) => (
+                                    <SortableHeader
+                                        key={column.key}
+                                        label={column.label}
+                                        sortKey={column.key}
+                                        activeSortKey={sortKey}
+                                        direction={sortDirection}
+                                        onSort={handleSort}
+                                    />
+                                ))}
 
-                                <th
-                                    onClick={() => handleSort("queue")}
-                                    className="cursor-pointer border border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Queue{" "}
-                                    {sortKey === "queue" && (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
-
-                                <th
-                                    onClick={() => handleSort("site")}
-                                    className="cursor-pointer border border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Site{" "}
-                                    {sortKey === "site" && (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
-
-                                <th
-                                    onClick={() => handleSort("device")}
-                                    className="cursor-pointer border border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Device{" "}
-                                    {sortKey === "device" && (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
-
-                                <th
-                                    onClick={() => handleSort("agentState")}
-                                    className="cursor-pointer border border-gray-300  whitespace-nowrap px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Agent State{" "}
-                                    {sortKey === "agentState" &&
-                                        (sortDirection === "asc" ? "↑" : "↓")}
-                                </th>
-
-                                <th
-                                    onClick={() => handleSort("combinedState")}
-                                    className="cursor-pointer border whitespace-nowrap border-gray-300 px-3 py-2 text-left hover:bg-gray-200"
-                                >
-                                    Combined State{" "}
-                                    {sortKey === "combinedState" &&
-                                        (sortDirection === "asc" ? "↑" : "↓")}
+                                <th className="border border-gray-300 bg-gray-100 px-3 py-2 text-left">
+                                    Queues
                                 </th>
                             </tr>
                         </thead>
 
                         <tbody>
-                            {filteredAgents.map((agent) => (
-                                <tr key={agent.agentId} className="hover:bg-gray-50">
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.name}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.extension}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.queues.join(", ")}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.site}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.deviceStatus}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {agent.agentStatus}
-                                    </td>
-
-                                    <td className="border border-gray-300 px-3 py-2">
-                                        {getCombinedState(agent)}
-                                    </td>
-                                </tr>
+                            {sortedAgents.map((agent) => (
+                                <AgentRow
+                                    key={agent.agentId}
+                                    agentId={agent.agentId}
+                                    onSelect={handleSelectAgent}
+                                />
                             ))}
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
+            )}
+
+            {selectedAgentId && agents[selectedAgentId] && (
+                <AgentDetailPanel agent={agents[selectedAgentId]} onClose={handleCloseDetail} />
+            )}
+        </section>
     );
 }

@@ -8,8 +8,6 @@ export type DeviceStatus =
 
 export type AgentStatus = "Available" | "OnBreak" | "AfterCallWork" | "LoggedOut";
 
-export type StreamType = "device" | "agent";
-
 export interface Agent {
     agentId: string;
     name: string;
@@ -30,23 +28,33 @@ export interface Agent {
     snapshotSeq: number;
 }
 
-export interface AgentEvent {
-    eventId: string;
-    agentId: string;
-    stream: StreamType;
-    status: DeviceStatus | AgentStatus;
-    sequence: number;
-    emittedAt: string;
+export type AgentEvent =
+    | {
+          eventId: string;
+          agentId: string;
+          stream: "device";
+          status: DeviceStatus;
+          sequence: number;
+          emittedAt: string;
 
-    callId?: string;
-    callerNumber?: string;
-    direction?: string;
-    queue?: string;
-    hangupCause?: string;
-    reason?: string;
-    resumedFromHold?: boolean;
-    talkTimeSeconds?: number;
-}
+          callId?: string;
+          callerNumber?: string;
+          direction?: string;
+          queue?: string;
+          hangupCause?: string;
+          resumedFromHold?: boolean;
+          talkTimeSeconds?: number;
+      }
+    | {
+          eventId: string;
+          agentId: string;
+          stream: "agent";
+          status: AgentStatus;
+          sequence: number;
+          emittedAt: string;
+
+          reason?: string;
+      };
 
 export interface Call {
     callId: string;

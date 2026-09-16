@@ -1,13 +1,37 @@
-import type { Agent, AgentEvent, Call } from "../store/agentTypes";
+import {
+    connect,
+    fetchAgents as fetchAgentsFromMock,
+    fetchCalls as fetchCallsFromMock,
+} from "../../mock/agentStream";
 
-import agentsData from "../../mock/agents.json";
-import eventsData from "../../mock/events.json";
-import callsData from "../../mock/calls.json";
+import type { Agent, AgentEvent, Call, ConnectionStatus } from "../store/agentTypes";
+
+type MockFetchCalls = (options?: { agentId?: string; offset?: number; limit?: number }) => Promise<{
+    calls: unknown[];
+    offset: number;
+    limit: number;
+}>;
+
+const fetchCallsMock = fetchCallsFromMock as MockFetchCalls;
 
 export async function fetchAgents(): Promise<Agent[]> {
-    const data = structuredClone(agentsData);
+    const maxRetries = 3;
 
-    return data.agents as Agent[];
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetchAgentsFromMock();
+
+            return response.agents as Agent[];
+        } catch (error) {
+            if (attempt === maxRetries) {
+                throw error;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+    }
+
+    throw new Error("Failed to load agents");
 }
 
 export async function fetchCalls(
@@ -19,17 +43,25 @@ export async function fetchCalls(
     offset: number;
     limit: number;
 }> {
-    const calls = callsData.calls
-        .filter((call) => call.agentId === agentId)
-        .slice(offset, offset + limit);
-
-    return {
-        calls: calls as Call[],
+    const response = await fetchCallsMock({
+        agentId,
         offset,
         limit,
+    });
+
+    return {
+        calls: response.calls as Call[],
+        offset: response.offset,
+        limit: response.limit,
     };
 }
 
-export function getEvents(): AgentEvent[] {
-    return eventsData as AgentEvent[];
+export function connectAgentStream(
+    onEvent: (event: AgentEvent) => void,
+    onStatusChange: (status: ConnectionStatus) => void,
+) {
+    return connect({
+        onEvent,
+        onStatusChange,
+    });
 }

@@ -1,29 +1,35 @@
 import { create } from "zustand";
+
 import { Agent, AgentEvent, AgentRuntime, ConnectionStatus } from "./agentTypes";
 
 interface AgentStore {
     agents: Record<string, AgentRuntime>;
+
     connectionStatus: ConnectionStatus;
 
     initializeAgents: (agents: Agent[]) => void;
+
     processEvent: (event: AgentEvent) => void;
+
     setConnectionStatus: (status: ConnectionStatus) => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
     agents: {},
+
     connectionStatus: "connecting",
 
     initializeAgents: (agents) => {
         const agentsById: Record<string, AgentRuntime> = {};
-
         agents.forEach((agent) => {
             agentsById[agent.agentId] = {
                 ...agent,
+
                 latestSequence: agent.snapshotSeq,
+
+                callStartedAt: agent.deviceStatus === "Answered" ? new Date().toISOString() : null,
             };
         });
-
         set({
             agents: agentsById,
         });
@@ -37,7 +43,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
                 return state;
             }
 
-            // Ignore stale, duplicate or pre-snapshot events
+            // sequence is the reliable ordering key.
+            // Ignore stale, duplicate, replayed and
+            // pre-snapshot events.
             if (event.sequence <= agent.latestSequence) {
                 return state;
             }
@@ -47,16 +55,37 @@ export const useAgentStore = create<AgentStore>((set) => ({
                 latestSequence: event.sequence,
             };
 
+            // Device stream
             if (event.stream === "device") {
-                updatedAgent.deviceStatus = event.status as AgentRuntime["deviceStatus"];
+                updatedAgent.deviceStatus = event.status;
 
+                // Update current call when the event provides
+                // a call ID.
                 if (event.callId !== undefined) {
                     updatedAgent.currentCallId = event.callId;
                 }
+
+                // New live call.
+                //
+                // We intentionally use the browser receive time
+                // instead of emittedAt because emittedAt can have
+                // clock skew.
+                if (event.status === "Answered" && event.callId) {
+                    updatedAgent.currentCallId = event.callId;
+
+                    updatedAgent.callStartedAt = new Date().toISOString();
+                }
+
+                // Call ended.
+                if (event.status === "CallEnded") {
+                    updatedAgent.currentCallId = null;
+                    updatedAgent.callStartedAt = null;
+                }
             }
 
+            // Agent stream
             if (event.stream === "agent") {
-                updatedAgent.agentStatus = event.status as AgentRuntime["agentStatus"];
+                updatedAgent.agentStatus = event.status;
             }
 
             return {
