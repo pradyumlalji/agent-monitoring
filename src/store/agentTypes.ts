@@ -36,6 +36,7 @@ export type AgentEvent =
           status: DeviceStatus;
           sequence: number;
           emittedAt: string;
+          receivedAt?: string;
 
           callId?: string;
           callerNumber?: string;
@@ -52,6 +53,7 @@ export type AgentEvent =
           status: AgentStatus;
           sequence: number;
           emittedAt: string;
+          receivedAt?: string;
 
           reason?: string;
       };
@@ -72,6 +74,7 @@ export interface Call {
 
 export interface AgentRuntime extends Agent {
     latestSequence: number;
+    lastDeviceEventAt: string;
 }
 
 export type ConnectionStatus = "connecting" | "open" | "closed";

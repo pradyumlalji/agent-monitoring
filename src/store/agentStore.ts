@@ -4,13 +4,10 @@ import { Agent, AgentEvent, AgentRuntime, ConnectionStatus } from "./agentTypes"
 
 interface AgentStore {
     agents: Record<string, AgentRuntime>;
-
     connectionStatus: ConnectionStatus;
 
     initializeAgents: (agents: Agent[]) => void;
-
     processEvent: (event: AgentEvent) => void;
-
     setConnectionStatus: (status: ConnectionStatus) => void;
 }
 
@@ -21,15 +18,21 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
     initializeAgents: (agents) => {
         const agentsById: Record<string, AgentRuntime> = {};
+
         agents.forEach((agent) => {
             agentsById[agent.agentId] = {
                 ...agent,
 
                 latestSequence: agent.snapshotSeq,
 
+                // The snapshot represents the latest known
+                // device state at initialization time.
+                lastDeviceEventAt: new Date().toISOString(),
+
                 callStartedAt: agent.deviceStatus === "Answered" ? new Date().toISOString() : null,
             };
         });
+
         set({
             agents: agentsById,
         });
@@ -44,8 +47,12 @@ export const useAgentStore = create<AgentStore>((set) => ({
             }
 
             // sequence is the reliable ordering key.
-            // Ignore stale, duplicate, replayed and
-            // pre-snapshot events.
+            //
+            // Ignore:
+            // - out-of-order events
+            // - duplicates
+            // - replayed events
+            // - events that belong before the snapshot
             if (event.sequence <= agent.latestSequence) {
                 return state;
             }
@@ -59,6 +66,10 @@ export const useAgentStore = create<AgentStore>((set) => ({
             if (event.stream === "device") {
                 updatedAgent.deviceStatus = event.status;
 
+                // Track when we last received a device event.
+                // receivedAt is supplied by the mock stream.
+                updatedAgent.lastDeviceEventAt = event.receivedAt ?? new Date().toISOString();
+
                 // Update current call when the event provides
                 // a call ID.
                 if (event.callId !== undefined) {
@@ -67,9 +78,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
                 // New live call.
                 //
-                // We intentionally use the browser receive time
-                // instead of emittedAt because emittedAt can have
-                // clock skew.
+                // We intentionally use client receive time
+                // instead of emittedAt because emittedAt can
+                // have clock skew.
                 if (event.status === "Answered" && event.callId) {
                     updatedAgent.currentCallId = event.callId;
 

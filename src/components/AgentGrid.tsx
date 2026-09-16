@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAgentStore } from "../store/agentStore";
@@ -10,10 +11,7 @@ import { getCombinedState } from "../store/agentSelectors";
 import AgentFilters from "./AgentFilters";
 import AgentRow from "./AgentRow";
 import AgentDetailPanel from "./AgentDetailPanel";
-
-type SortKey = "name" | "extension" | "site" | "deviceStatus" | "agentStatus" | "combinedState";
-
-type SortDirection = "asc" | "desc";
+import SortableHeader, { type SortDirection, type SortKey } from "./SortableHeader";
 
 const COLUMNS: {
     key: SortKey;
@@ -21,81 +19,42 @@ const COLUMNS: {
 }[] = [
     { key: "name", label: "Name" },
     { key: "extension", label: "Extension" },
+    { key: "queues", label: "Queues" },
     { key: "site", label: "Site" },
     { key: "deviceStatus", label: "Device State" },
     { key: "agentStatus", label: "Agent State" },
     { key: "combinedState", label: "Actionable State" },
 ];
 
-function getSortValue(agent: AgentRuntime, key: SortKey): string {
-    switch (key) {
-        case "combinedState":
-            return getCombinedState(agent);
-
-        case "name":
-            return agent.name;
-
-        case "extension":
-            return agent.extension;
-
-        case "site":
-            return agent.site;
-
-        case "deviceStatus":
-            return agent.deviceStatus;
-
-        case "agentStatus":
-            return agent.agentStatus;
-
-        default:
-            return "";
-    }
-}
-
-interface SortableHeaderProps {
-    label: string;
-    sortKey: SortKey;
-    activeSortKey: SortKey;
-    direction: SortDirection;
-    onSort: (key: SortKey) => void;
-}
-
-function SortableHeader({ label, sortKey, activeSortKey, direction, onSort }: SortableHeaderProps) {
-    const isActive = activeSortKey === sortKey;
-
-    return (
-        <th className="border border-gray-300 bg-gray-100 px-3 py-2 text-left">
-            <button
-                type="button"
-                onClick={() => onSort(sortKey)}
-                className="font-semibold hover:underline"
-                aria-label={`Sort by ${label}`}
-            >
-                {label}
-
-                {isActive && (
-                    <span className="ml-1" aria-hidden="true">
-                        {direction === "asc" ? "↑" : "↓"}
-                    </span>
-                )}
-            </button>
-        </th>
-    );
-}
+const SORT_ACCESSORS: Record<SortKey, (agent: AgentRuntime) => string> = {
+    name: (agent) => agent.name,
+    extension: (agent) => agent.extension,
+    queues: (agent) => agent.queues.join(", "),
+    site: (agent) => agent.site,
+    deviceStatus: (agent) => agent.deviceStatus,
+    agentStatus: (agent) => agent.agentStatus,
+    combinedState: getCombinedState,
+};
 
 export default function AgentGrid() {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const filters = useMemo(
+        () => ({
+            search: searchParams.get("search") ?? "",
+            queue: searchParams.get("queue") ?? "",
+            site: searchParams.get("site") ?? "",
+            state: searchParams.get("state") ?? "",
+        }),
+        [searchParams],
+    );
+
+    const { search, queue, site, state } = filters;
 
     const agents = useAgentStore((state) => state.agents);
 
     const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-
-    const search = searchParams.get("search") ?? "";
-    const queue = searchParams.get("queue") ?? "";
-    const site = searchParams.get("site") ?? "";
-    const state = searchParams.get("state") ?? "";
 
     const [searchInput, setSearchInput] = useState(search);
 
@@ -122,8 +81,6 @@ export default function AgentGrid() {
         [pathname, router, searchParams],
     );
 
-    // Debounce search updates so every keystroke does not
-    // immediately trigger filtering + URL navigation.
     useEffect(() => {
         if (searchInput === search) {
             return;
@@ -172,8 +129,9 @@ export default function AgentGrid() {
         const sorted = [...filteredAgents];
 
         sorted.sort((a, b) => {
-            const aValue = getSortValue(a, sortKey);
-            const bValue = getSortValue(b, sortKey);
+            const aValue = SORT_ACCESSORS[sortKey](a);
+
+            const bValue = SORT_ACCESSORS[sortKey](b);
 
             const comparison = aValue.localeCompare(bValue, undefined, {
                 numeric: true,
@@ -219,6 +177,17 @@ export default function AgentGrid() {
         [pushParams],
     );
 
+    const handleReset = useCallback(() => {
+        pushParams((params) => {
+            params.delete("search");
+            params.delete("queue");
+            params.delete("site");
+            params.delete("state");
+        });
+
+        setSearchInput("");
+    }, [pushParams]);
+
     return (
         <section className="p-4">
             <AgentFilters
@@ -230,16 +199,7 @@ export default function AgentGrid() {
                 onQueueChange={(value) => handleFilterChange("queue", value)}
                 onSiteChange={(value) => handleFilterChange("site", value)}
                 onStateChange={(value) => handleFilterChange("state", value)}
-                onReset={() => {
-                    pushParams((params) => {
-                        params.delete("search");
-                        params.delete("queue");
-                        params.delete("site");
-                        params.delete("state");
-                    });
-
-                    setSearchInput("");
-                }}
+                onReset={handleReset}
             />
 
             <div className="mt-4 flex items-center justify-between">
@@ -271,10 +231,6 @@ export default function AgentGrid() {
                                         onSort={handleSort}
                                     />
                                 ))}
-
-                                <th className="border border-gray-300 bg-gray-100 px-3 py-2 text-left">
-                                    Queues
-                                </th>
                             </tr>
                         </thead>
 

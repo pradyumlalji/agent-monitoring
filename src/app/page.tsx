@@ -87,7 +87,6 @@ export default function Home() {
             <div className="flex items-center justify-between px-4 pt-4">
                 <div>
                     <h1>Live Agent Monitoring</h1>
-
                     <p>Total Agents: {agentList.length}</p>
                 </div>
 

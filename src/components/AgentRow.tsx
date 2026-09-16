@@ -4,6 +4,7 @@ import { memo } from "react";
 
 import { useAgentStore } from "../store/agentStore";
 import { getCombinedState } from "../store/agentSelectors";
+import { getStatusClass } from "../utils/status";
 
 import CallTimer from "./CallTimer";
 
@@ -12,12 +13,22 @@ interface AgentRowProps {
     onSelect: (agentId: string) => void;
 }
 
+function StatusBadge({ children, className }: { children: React.ReactNode; className: string }) {
+    return (
+        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${className}`}>
+            {children}
+        </span>
+    );
+}
+
 function AgentRow({ agentId, onSelect }: AgentRowProps) {
     const agent = useAgentStore((state) => state.agents[agentId]);
 
     if (!agent) {
         return null;
     }
+
+    const combinedState = getCombinedState(agent);
 
     const isOnCall = agent.deviceStatus === "Answered" && agent.callStartedAt;
 
@@ -31,7 +42,7 @@ function AgentRow({ agentId, onSelect }: AgentRowProps) {
                 }
             }}
             tabIndex={0}
-            className="cursor-pointer whitespace-nowrap hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
             <td className="border border-gray-300 px-3 py-2">{agent.name}</td>
 
@@ -41,13 +52,23 @@ function AgentRow({ agentId, onSelect }: AgentRowProps) {
 
             <td className="border border-gray-300 px-3 py-2">{agent.site}</td>
 
-            <td className="border border-gray-300 px-3 py-2">{agent.deviceStatus}</td>
+            <td className="border border-gray-300 px-3 py-2">
+                <StatusBadge className={getStatusClass(agent.deviceStatus)}>
+                    {agent.deviceStatus}
+                </StatusBadge>
+            </td>
 
-            <td className="border border-gray-300 px-3 py-2">{agent.agentStatus}</td>
+            <td className="border border-gray-300 px-3 py-2">
+                <StatusBadge className={getStatusClass(agent.agentStatus)}>
+                    {agent.agentStatus}
+                </StatusBadge>
+            </td>
 
             <td className="border border-gray-300 px-3 py-2">
                 <div className="flex items-center gap-2">
-                    <span>{getCombinedState(agent)}</span>
+                    <StatusBadge className={getStatusClass(combinedState)}>
+                        {combinedState}
+                    </StatusBadge>
 
                     {isOnCall && <CallTimer startedAt={agent.callStartedAt!} />}
                 </div>

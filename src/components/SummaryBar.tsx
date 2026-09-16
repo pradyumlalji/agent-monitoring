@@ -1,69 +1,88 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { useAgentStore } from "../store/agentStore";
 import { getCombinedState } from "../store/agentSelectors";
+
+function formatDuration(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+}
+
+// Maps each combined state to the summary card that should count it.
+// Any state not listed here (e.g. transient/unknown states) is simply
+// not tallied, matching the old switch's implicit default.
+const STATE_TO_METRIC: Record<string, string> = {
+    Available: "available",
+    "On Call": "onCall",
+    "On Break": "onBreak",
+    "After Call Work": "afterCallWork",
+    "Logged Out": "loggedOut",
+    Stale: "stale",
+};
+
+const SUMMARY_CARDS: { key: string; label: string }[] = [
+    { key: "available", label: "Available" },
+    { key: "onCall", label: "On Call" },
+    { key: "onBreak", label: "On Break" },
+    { key: "afterCallWork", label: "After Call Work" },
+    { key: "loggedOut", label: "Logged Out" },
+    { key: "stale", label: "Stale Devices" },
+];
+
+function getCallDurationSeconds(callStartedAt: string) {
+    const startedAt = new Date(callStartedAt).getTime();
+    if (Number.isNaN(startedAt)) return 0;
+    return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+}
 
 export default function SummaryBar() {
     const agents = useAgentStore((state) => state.agents);
 
-    const agentList = Object.values(agents);
+    const metrics = useMemo(() => {
+        const agentList = Object.values(agents);
+        const counts: Record<string, number> = {};
 
-    const counts = {
-        total: agentList.length,
-        available: 0,
-        onCall: 0,
-        onBreak: 0,
-        afterCallWork: 0,
-        loggedOut: 0,
-    };
+        let longestCallSeconds = 0;
 
-    agentList.forEach((agent) => {
-        const state = getCombinedState(agent);
+        agentList.forEach((agent) => {
+            const state = getCombinedState(agent);
+            const metricKey = STATE_TO_METRIC[state];
 
-        switch (state) {
-            case "Available":
-                counts.available++;
-                break;
+            if (metricKey) {
+                counts[metricKey] = (counts[metricKey] ?? 0) + 1;
+            }
 
-            case "On Call":
-                counts.onCall++;
-                break;
+            if (state === "On Call" && agent.callStartedAt) {
+                longestCallSeconds = Math.max(
+                    longestCallSeconds,
+                    getCallDurationSeconds(agent.callStartedAt),
+                );
+            }
+        });
 
-            case "On Break":
-                counts.onBreak++;
-                break;
-
-            case "After Call Work":
-                counts.afterCallWork++;
-                break;
-
-            case "Logged Out":
-                counts.loggedOut++;
-                break;
-        }
-    });
+        return { total: agentList.length, counts, longestCallSeconds };
+    }, [agents]);
 
     const items = [
-        { label: "Total", value: counts.total },
-        { label: "Available", value: counts.available },
-        { label: "On Call", value: counts.onCall },
-        { label: "On Break", value: counts.onBreak },
-        {
-            label: "After Call Work",
-            value: counts.afterCallWork,
-        },
-        { label: "Logged Out", value: counts.loggedOut },
+        { label: "Total", value: metrics.total },
+        ...SUMMARY_CARDS.map((card) => ({
+            label: card.label,
+            value: metrics.counts[card.key] ?? 0,
+        })),
+        { label: "Longest Current Call", value: formatDuration(metrics.longestCallSeconds) },
     ];
 
     return (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
             {items.map((item) => (
                 <div
                     key={item.label}
                     className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
                 >
                     <p className="text-sm text-gray-500">{item.label}</p>
-
                     <p className="mt-1 text-2xl font-semibold text-gray-900">{item.value}</p>
                 </div>
             ))}

@@ -1,6 +1,17 @@
 import type { AgentRuntime } from "./agentTypes";
 
+const STALE_DEVICE_THRESHOLD_MS = 30_000;
+
 export function getCombinedState(agent: AgentRuntime): string {
+    const lastDeviceEvent = new Date(agent.lastDeviceEventAt).getTime();
+
+    const isDeviceStale =
+        !Number.isNaN(lastDeviceEvent) && Date.now() - lastDeviceEvent > STALE_DEVICE_THRESHOLD_MS;
+
+    if (isDeviceStale) {
+        return "Stale";
+    }
+
     if (agent.agentStatus === "LoggedOut") {
         return "Logged Out";
     }
